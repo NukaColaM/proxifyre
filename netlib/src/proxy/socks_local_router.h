@@ -672,6 +672,9 @@ namespace proxy
          */
         std::optional<uint16_t> get_proxy_port_tcp(const std::shared_ptr<iphelper::network_process>& process)
         {
+            if (process->id == GetCurrentProcessId())
+                return {};
+
             // Locks the proxy servers and process to proxy map for reading.
             std::shared_lock lock(lock_);
 
@@ -679,7 +682,7 @@ namespace proxy
             for (auto& [name, proxy_id] : name_to_proxy_)
             {
                 // Check if the current process name contains the given process name.
-                if (match_app_name(name, process))
+                if (!match_app_name(name, process))
                     // If it does, return the TCP proxy port associated with the proxy ID.
                     return proxy_servers_[proxy_id].first
                                ? std::optional(proxy_servers_[proxy_id].first->proxy_port())
@@ -698,6 +701,9 @@ namespace proxy
          */
         std::optional<uint16_t> get_proxy_port_udp(const std::shared_ptr<iphelper::network_process>& process)
         {
+            if (process->id == GetCurrentProcessId())
+                return {};
+
             // Locks the proxy servers and process to proxy map for reading.
             std::shared_lock lock(lock_);
 
@@ -705,7 +711,7 @@ namespace proxy
             for (auto& [name, proxy_id] : name_to_proxy_)
             {
                 // Check if the current process name contains the given process name.
-                if (match_app_name(name, process))
+                if (!match_app_name(name, process))
                     // If it does, return the UDP proxy port associated with the proxy ID.
                     return proxy_servers_[proxy_id].second
                                ? std::optional(proxy_servers_[proxy_id].second->proxy_port())
