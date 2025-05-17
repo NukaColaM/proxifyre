@@ -51,6 +51,34 @@ namespace proxy
         // Unique pointer to the static filters object
         std::unique_ptr<ndisapi::static_filters> static_filters_;
 
+    private:
+        inline static const std::vector<net::ip_subnet_v4> hardcoded_excluded_subnets_ = [] {
+            std::vector<net::ip_subnet_v4> temp_subnets;
+            const char* cidrs_to_exclude[] = {
+                "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8",
+                "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24",
+                "192.88.99.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24",
+                "203.0.113.0/24", "224.0.0.0/3"
+            };
+            for (const char* cidr_str : cidrs_to_exclude) {
+                auto [parsed, subnet] = net::ip_subnet_v4::from_string(cidr_str);
+                if (parsed && subnet.is_valid()) {
+                    temp_subnets.push_back(subnet);
+                }
+                else {
+                    std::cerr << "CRITICAL: socks_local_router: Failed to parse excluded subnet: " << cidr_str << std::endl;
+                }
+            }
+            return temp_subnets;
+            }();
+
+        inline static bool is_destination_ip_excluded_static(const net::ip_address_v4& destination_ip) {
+            for (const auto& subnet : hardcoded_excluded_subnets_) {
+                if (subnet.contains(destination_ip)) return true;
+            }
+            return false;
+        }
+
     public:
         enum supported_protocols : uint8_t
         {
@@ -97,6 +125,13 @@ namespace proxy
                         return ndisapi::queued_packet_filter::packet_action::pass;
 
                     auto* const ip_header = reinterpret_cast<iphdr_ptr>(ethernet_header + 1);
+                    const net::ip_address_v4 current_destination_ip(ip_header->ip_dst);
+
+                    if (socks_local_router::is_destination_ip_excluded_static(current_destination_ip)) {
+                        print_log(log_level::info, // or debug
+                            "Passing packet to excluded " + std::string(current_destination_ip));
+                        return ndisapi::queued_packet_filter::packet_action::pass;
+                    }
 
                     if (pcap_)
                         *pcap_ << buffer;
@@ -253,7 +288,7 @@ namespace proxy
          * @return false if the operation was already active at the start of this function, otherwise true
          *         (even if there were errors starting the operation).
          */
-        bool start()
+        inline bool start()
         {
             if (auto expected = false; !is_active_.compare_exchange_strong(expected, true))
                 return false;
@@ -299,7 +334,7 @@ namespace proxy
          * @return false if the operation was not active at the start of this function, otherwise true
          *         (even if there were errors stopping the operation).
          */
-        bool stop()
+        inline bool stop()
         {
             // A flag to indicate whether the operation was active or not.
             // If the value of is_active_ was already false, this function returns false
